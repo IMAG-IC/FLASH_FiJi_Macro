@@ -1,4 +1,4 @@
-# <p>  <b>FLASH</b> </p>
+# <p>  <b>FLASH: Simultaneous Muscle Fiber Typing and Morphometry Analysis</b> </p>
 
 IMAG'IC Core Facility / Institut Cochin
 
@@ -6,7 +6,23 @@ Maxime Di Gallo & Thomas Guilbert project
 
 A general intensity quantification macro for FiJi - FiJi Is Just ImageJ.
 
+https://www.researchsquare.com/article/rs-6629157/v1
 
+Background:
+
+Skeletal muscle is a dynamic tissue capable of structural and metabolic remodeling in response to physiological and pathological stimuli. These adaptations are central to understanding the mechanisms underlying conditions such as genetic myopathies, cancer, aging, and recovery from injury. Muscle fiber characterization—assessing fiber type, size, and metabolic profile—is essential for such studies. However, conventional histological methods often rely on serial tissue sections and multiple staining protocols, which are time-consuming, require significant biological material, and introduce methodological bias.
+
+Methods:
+
+We developed FLASH (Fluorescence-based Labeling for Assessing Skeletal muscle Histology), a novel methodology combining enzymatic (SDH or GPDH) and quadruple fluorescent labeling (Laminin, MYH4, MYH2, MYH7) on a single muscle section. The resulting images were analyzed using a custom macro in Fiji/ImageJ, integrating the Cellpose segmentation algorithm. This automated pipeline detects individual muscle fibers, quantifies their cross-sectional area (CSA), identifies fiber types based on myosin isoform expression, and measures enzymatic staining intensity. Batch analysis was implemented to process entire image folders automatically. Validation was performed by comparing automated fiber detection with expert manual segmentation using correlation analysis and Bland-Altman plots.
+
+Results:
+
+The FLASH method allowed simultaneous assessment of both contractile and metabolic properties within individual fibers on the same section, removing the need for serial cuts. The automated image analysis achieved high accuracy in fiber detection (r > 0.95 compared to manual annotation) and produced consistent CSA and fiber-type quantification, even under suboptimal staining conditions. The macro enabled significant time savings by automating the complete analysis workflow, including ROI generation and Excel data export for each image.
+
+Conclusions:
+
+FLASH provides an efficient and robust tool for high-throughput skeletal muscle histology. By combining enzymatic and fluorescent co-labeling with machine learning-based image analysis, this method improves reproductibility, reduces experimental complexity, and minimizes user bias. FLASH is particularly well-suited for large-scale or longitudinal studies investigating muscle adaptation in health and disease.
 
 A. Installing Cellpose
 
