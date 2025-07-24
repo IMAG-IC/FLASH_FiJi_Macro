@@ -1,15 +1,24 @@
-// Thomas Guilbert & Maxime Di Gallo & Raphael Braud-Mussi
-// 2023/11/27
-// This Macro is usefull in case you need.....
-// Cette macro fonctionne par sélection d'un dossier ne contenant que des fichiers au formats .tif contenant plusieurs canaux, dont 1 délimitant le contour des fibres musculaires
+// Maxime Di Gallo & Thomas Guilbert & Raphael Braud-Mussi
+// 2025/07/24
+//
+// myoFLASH_v3.1.ijm
+//
+// myoFLASH: A general muscle fibers intensity quantification macro for FiJi 
+// This macro works by selecting a folder containing only .tif files with multiple channels, including one delineating the outline of the muscle fibres (laminin).
+//
+// The operation of this macro has been validated with version 3.1.1.2 of Cellpose. To switch to the CellposeSAM version, simply set the ‘Auto-calibrate diameter’ 
+// parameter to false and set the ‘FibreDiameter’ variable to 30 by default.
+//
+// This macro refers to DOI article ##############
 //
 // licence CC BY 4.0
-
-
-
+//
+//
+//
 // ===================================================================================================================
 // ============================================== STRUCTURE DES FONCTIONS ============================================
 // ===================================================================================================================
+
 
 
 						
@@ -18,19 +27,22 @@
 
 function showEnhancedDialog() {
     Dialog.create("Muscle Fiber Analyzer");
-    Dialog.addMessage("Channel Configuration", 16, "#8a7cc2");
+    Dialog.addMessage("Channel Configuration", 18, "#8a7cc2");
     Dialog.addNumber("Total number of channels:", 4, 0, 2, "");
     Dialog.addNumber("Laminin channel:", 2, 0, 2, "(delineates fibers)");
-    Dialog.addNumber("Average fiber diameter:", 60, 0, 3, "pixels");
+	Dialog.addCheckbox("Auto-calibrate diameter", true);
+	Dialog.addNumber("Manual fiber diameter:", 30, 0, 3, "pixels (ignored if auto-calibrate is checked)");
+    Dialog.addMessage("Fiber size measurement", 14, "#8a7cc2");
+	Dialog.addChoice("Size measurement method:", newArray("Cross Sectional Area (CSA)", "Minimum Feret Diameter"), "Cross Sectional Area (CSA)");
     
-    Dialog.addMessage("Fiber types to analyze", 14, "#8a7cc2");
-    Dialog.addNumber("Type IIb channel:", 0, 0, 2, "(0 = disabled)");
-    Dialog.addNumber("Type IIx channel:", 0, 0, 2, "(0 = disabled)");
-    Dialog.addNumber("Type IIa channel:", 0, 0, 2, "(0 = disabled)");
-    Dialog.addNumber("Type I channel:", 0, 0, 2, "(0 = disabled)");
+    Dialog.addMessage("Fiber types to analyze", 18, "#8a7cc2");
+    Dialog.addNumber("Type IIb channel:", 0, 0, 2, "(0 = Off)");
+    Dialog.addNumber("Type IIx channel:", 0, 0, 2, "(0 = Off)");
+    Dialog.addNumber("Type IIa channel:", 0, 0, 2, "(0 = Off)");
+    Dialog.addNumber("Type I channel:", 0, 0, 2, "(0 = Off)");
     
     Dialog.addMessage("Custom channel (optional)", 14, "#c1666b");
-    Dialog.addNumber("Channel number:", 0, 0, 2, "(0 = disabled)");
+    Dialog.addNumber("Channel number:", 0, 0, 2, "(0 = Off)");
     Dialog.addString("Channel name:", "", 10);
     
     // Advanced options in a collapsible panel
@@ -41,13 +53,20 @@ function showEnhancedDialog() {
     // Récupérer les valeurs de base
     totalChannels = Dialog.getNumber();
     LaminineCannal = Dialog.getNumber();
-    FibreDiameter = Dialog.getNumber();
-    IIbChannel = Dialog.getNumber();
+    autoCalibrate = Dialog.getCheckbox();
+	manualDiameter = Dialog.getNumber();
+	// Déterminer le diamètre final
+	if (autoCalibrate) {
+	    FibreDiameter = 0;  // Active la calibration automatique
+  } else {
+	    FibreDiameter = manualDiameter;
+  } IIbChannel = Dialog.getNumber();
     IIxChannel = Dialog.getNumber();
     IIaChannel = Dialog.getNumber();
     IChannel = Dialog.getNumber();
     customChannel = Dialog.getNumber();
     customChannelName = Dialog.getString();
+    sizeMeasurementMethod = Dialog.getChoice();
     showAdvanced = Dialog.getCheckbox();
     
     // Afficher les options avancées si demandé
@@ -104,11 +123,11 @@ function showEnhancedDialog() {
     }
     
     // Retourner tous les paramètres dans un tableau
-    params = newArray(totalChannels, LaminineCannal, FibreDiameter, 
-                   IIbChannel, IIxChannel, IIaChannel, IChannel, 
-                   customChannel, customChannelName, 
-                   cellposeSensitivity, exclusionThreshold, adaptiveThresholdFactor,
-                   filterNonHomogeneous, useGPU, useChannelColors, overlayOpacity);
+    params = newArray(totalChannels, LaminineCannal, autoCalibrate, FibreDiameter, 
+	               IIbChannel, IIxChannel, IIaChannel, IChannel, 
+	               customChannel, customChannelName, sizeMeasurementMethod,
+	               cellposeSensitivity, exclusionThreshold, adaptiveThresholdFactor,
+	               filterNonHomogeneous, useGPU, useChannelColors, overlayOpacity);
     
     return params;
 }
@@ -217,54 +236,99 @@ function getTaskName(stepNumber) {
 function configureCellpose() {
     // Definir les chemins potentiels pour différents systèmes d'exploitation
     function getPotentialCellposePaths() {
-        os = getInfo("os.name");
-        osLower = toLowerCase(os);
-        
-        potentialPaths = newArray();
-        gpuAvailable = testGPUAvailability();
-        // Chemins génériques Windows avec ProgramData
-        if (indexOf(osLower, "windows") >= 0) {
-            potentialPaths = Array.concat(potentialPaths, newArray(
-                "C:\\ProgramData\\Anaconda3\\envs\\cellpose",
-                "%USERPROFILE%\\Anaconda3\\envs\\cellpose",
-                "%USERPROFILE%\\.conda\\envs\\cellpose"
-            ));
-        }
-        
-        // Chemins pour Mac
-        if (indexOf(osLower, "mac") >= 0) {
-            potentialPaths = Array.concat(potentialPaths, newArray(
-                "~/miniforge3/envs/cellpose",
-                "~/opt/anaconda3/envs/cellpose",
-                "~/miniconda3/envs/cellpose"
-            ));
-        }
-        
-        // Chemins pour Linux
-        if (indexOf(osLower, "linux") >= 0) {
-            potentialPaths = Array.concat(potentialPaths, newArray(
-                "~/miniconda3/envs/cellpose",
-                "~/anaconda3/envs/cellpose",
-                "/opt/conda/envs/cellpose"
-            ));
-        }
-        
-        return potentialPaths;
+    os = getInfo("os.name");
+    osLower = toLowerCase(os);
+    homeDir = getDirectory("home");
+    
+    potentialPaths = newArray();
+    
+    // Chemins génériques Windows
+    if (indexOf(osLower, "windows") >= 0) {
+        potentialPaths = Array.concat(potentialPaths, newArray(
+            "C:\\ProgramData\\Anaconda3\\envs\\cellpose",
+            "C:\\ProgramData\\Miniconda3\\envs\\cellpose",
+            "C:\\ProgramData\\mambaforge\\envs\\cellpose",
+            "C:\\ProgramData\\miniforge3\\envs\\cellpose",
+            homeDir + "Anaconda3\\envs\\cellpose",
+            homeDir + "Miniconda3\\envs\\cellpose",
+            homeDir + "mambaforge\\envs\\cellpose",
+            homeDir + "miniforge3\\envs\\cellpose",
+            homeDir + "AppData\\Local\\Anaconda3\\envs\\cellpose",
+            homeDir + "AppData\\Local\\Miniconda3\\envs\\cellpose",
+            homeDir + "AppData\\Local\\mambaforge\\envs\\cellpose",
+            homeDir + "AppData\\Local\\miniforge3\\envs\\cellpose",
+            homeDir + ".conda\\envs\\cellpose"
+        ));
     }
     
-    // Trouver l'environnement Cellpose
-    function findCellposeEnvironment(paths) {
-        for (i = 0; i < paths.length; i++) {
-            // Expand environment variables (important for Windows)
-            expandedPath = replace(paths[i], "%USERPROFILE%", getDirectory("home"));
-            
-            // Vérifier l'existence du chemin
-            if (File.exists(expandedPath)) {
-                return expandedPath;
-            }
-        }
-        return "";
+    // Chemins pour Mac - utilisation de homeDir au lieu de ~/
+    if (indexOf(osLower, "mac") >= 0) {
+        potentialPaths = Array.concat(potentialPaths, newArray(
+            homeDir + "miniforge3/envs/cellpose",
+            homeDir + "mambaforge/envs/cellpose",
+            homeDir + "opt/anaconda3/envs/cellpose",
+            homeDir + "opt/miniconda3/envs/cellpose",
+            homeDir + "anaconda3/envs/cellpose",
+            homeDir + "miniconda3/envs/cellpose",
+            homeDir + ".conda/envs/cellpose",
+            "/opt/anaconda3/envs/cellpose",
+            "/opt/miniconda3/envs/cellpose",
+            "/usr/local/anaconda3/envs/cellpose",
+            "/usr/local/miniconda3/envs/cellpose",
+            "/opt/homebrew/anaconda3/envs/cellpose",
+            "/opt/homebrew/miniconda3/envs/cellpose"
+        ));
     }
+    
+    // Chemins pour Linux - utilisation de homeDir au lieu de ~/
+    if (indexOf(osLower, "linux") >= 0) {
+        potentialPaths = Array.concat(potentialPaths, newArray(
+            homeDir + "miniconda3/envs/cellpose",
+            homeDir + "miniforge3/envs/cellpose",
+            homeDir + "mambaforge/envs/cellpose",
+            homeDir + "anaconda3/envs/cellpose",
+            homeDir + ".conda/envs/cellpose",
+            homeDir + ".local/share/anaconda3/envs/cellpose",
+            homeDir + ".local/share/miniconda3/envs/cellpose",
+            "/opt/conda/envs/cellpose",
+            "/opt/anaconda3/envs/cellpose",
+            "/opt/miniconda3/envs/cellpose",
+            "/usr/local/anaconda3/envs/cellpose",
+            "/usr/local/miniconda3/envs/cellpose",
+            "/home/conda/envs/cellpose"
+        ));
+    }
+    
+    return potentialPaths;
+}
+    
+    // Trouver l'environnement Cellpose
+function findCellposeEnvironment(paths) {
+    homeDir = getDirectory("home");
+    
+    for (i = 0; i < paths.length; i++) {
+        currentPath = paths[i];
+        
+        // Remplacer %USERPROFILE% de manière sécurisée
+        if (indexOf(currentPath, "%USERPROFILE%") >= 0) {
+            // Extraction manuelle sans utiliser replace()
+            beforeVar = substring(currentPath, 0, indexOf(currentPath, "%USERPROFILE%"));
+            afterVar = substring(currentPath, indexOf(currentPath, "%USERPROFILE%") + 13);
+            expandedPath = beforeVar + homeDir + afterVar;
+        } else if (startsWith(currentPath, "~/")) {
+            // Remplacer les tildes pour Mac/Linux
+            expandedPath = homeDir + substring(currentPath, 2);
+        } else {
+            expandedPath = currentPath;
+        }
+        
+        // Vérifier l'existence du chemin
+        if (File.exists(expandedPath)) {
+            return expandedPath;
+        }
+    }
+    return "";
+}
     
     // Récupérer les chemins potentiels
     potentialPaths = getPotentialCellposePaths();
@@ -641,7 +705,7 @@ function enhancedAdaptiveThreshold(values, imageID, roiManagerString, roiIndices
     else {
         // Distribution unimodale
 	    // Facteur de base moins agressif
-	    baseFactor = 0.25; // Réduit de 0.3 à 0.25
+	    baseFactor = 0.18; // Réduit de 0.3 à 0.25
 	    
 	    // Calcul de proportion pour calibration
 	    initialThreshold = median + (baseFactor * std);
@@ -652,16 +716,16 @@ function enhancedAdaptiveThreshold(values, imageID, roiManagerString, roiIndices
 	    proportion = positiveCount / values.length;
 	    
 	    // Ajustement du facteur selon la proportion - moins agressif
-	    if (proportion < 0.18) { // Augmenté de 0.15 à 0.18
-	        // Faible proportion - être plus sensible
-	        if (proportion < 0.03) { // Augmenté de 0.02 à 0.03
-	            baseFactor = 0.08; // Réduit de 0.10 à 0.08
-	        } else if (proportion < 0.07) { // Augmenté de 0.05 à 0.07
-	            baseFactor = 0.12; // Réduit de 0.15 à 0.12
-	        } else {
-	            baseFactor = 0.18; // Réduit de 0.20 à 0.18
-	        }
-	    } else if (proportion > 0.35) { // Réduit de 0.4 à 0.35
+	    if (proportion < 0.25) { // Augmenté pour être plus tolérant
+	    // Faible proportion - être encore plus sensible
+	    if (proportion < 0.05) { // Seuil plus élevé
+	        baseFactor = 0.06; // Encore plus réduit
+	    } else if (proportion < 0.10) { // Seuil plus élevé
+	        baseFactor = 0.10; // Encore plus réduit
+	    } else {
+	        baseFactor = 0.15; // Encore plus réduit
+	    }
+	} else if (proportion > 0.45) { // Seuil plus élevé pour être plus tolérant
 	        // Forte proportion - être moins strict
 	        if (proportion > 0.65) { // Réduit de 0.7 à 0.65
 	            baseFactor = 0.5; // Réduit de 0.6 à 0.5
@@ -680,8 +744,8 @@ function enhancedAdaptiveThreshold(values, imageID, roiManagerString, roiIndices
 	    threshold = adjustThresholdByTexture(threshold, textureScores);
 	    
 	    // Limites de sécurité moins strictes
-	    minThreshold = q1 * 0.9;  // 10% en dessous de Q1
-	    maxThreshold = q3 + (1.2 * iqr);  // Augmenté de 1.0 à 1.2
+	    minThreshold = q1 * 0.8;  // 20% en dessous de Q1 (plus permissif)
+		maxThreshold = q3 + (1.5 * iqr);  // Encore plus élevé pour accepter plus de valeurs
 	    
 	    // Garantir que le seuil reste dans des limites raisonnables
 	    threshold = maxOf(threshold, minThreshold);
@@ -696,7 +760,11 @@ function analyzeTexture(roiManagerString, roiIndex) {
     roiManager("select", roiIndex);
     
     // Mesurer divers paramètres de texture
-    run("Set Measurements...", "mean standard modal min median skewness kurtosis redirect=None decimal=3");
+    if (useCSA) {
+	    run("Set Measurements...", "area mean standard modal min median skewness kurtosis redirect=None decimal=3");
+	} else {
+	    run("Set Measurements...", "area mean standard modal min median skewness kurtosis feret's redirect=None decimal=3");
+	}
     run("Measure");
     
     mean = getResult("Mean", nResults-1);
@@ -705,8 +773,12 @@ function analyzeTexture(roiManagerString, roiIndex) {
     mode = getResult("Mode", nResults-1);
     skewness = getResult("Skewness", nResults-1);
     kurtosis = getResult("Kurtosis", nResults-1);
-    area = getResult("Area", nResults-1);
-    
+    if (useCSA) {
+	    sizeValue = getResult("Area", nResults-1);
+	} else {
+	    sizeValue = getResult("MinFeret", nResults-1);
+	}
+	    
     // Effacer les résultats pour ne pas encombrer la table
     run("Clear Results");
     
@@ -740,9 +812,15 @@ function analyzeTexture(roiManagerString, roiIndex) {
     }
     
     // Les très petites ou très grandes ROIs peuvent être problématiques
-    if (area > 200 && area < 3000) {
-        homogeneityScore *= 1.05; // Petit bonus de 5%
-    }
+	if (useCSA) {
+	    if (sizeValue > 200 && sizeValue < 3000) {
+	        homogeneityScore *= 1.25; // Petit bonus de 5%
+	    }
+	} else {
+	    if (sizeValue > 10 && sizeValue < 100) { // Ajustement pour MinFeret
+	        homogeneityScore *= 1.25; // Petit bonus de 5%
+	    }
+	}
     // Retourner le score d'homogénéité (entre 0 et 1)
     // Plus le score est proche de 1, plus la texture est homogène
     return minOf(1.0, maxOf(0.35, homogeneityScore));
@@ -965,7 +1043,7 @@ function calculateHomogeneity(values, roiIndex) {
 // ============================================ CLASSIFICATION DES FIBRES ====================================================
 
 
-function classifyHybridFiber(intensities, thresholds, typeNames, area, perimeter, eccentricity, solidity, ratios) {
+function classifyHybridFiber(intensities, thresholds, typeNames, sizeValue, perimeter, eccentricity, solidity, ratios) {
     // Normaliser les intensités par rapport à leurs seuils
     normalizedIntensities = newArray(intensities.length);
     for (i = 0; i < intensities.length; i++) {
@@ -973,11 +1051,56 @@ function classifyHybridFiber(intensities, thresholds, typeNames, area, perimeter
     }
     
     // Caractéristiques morphologiques normalisées
-    normalizedArea = area / 1000; 
+	if (useCSA) {
+	    normalizedSize = sizeValue / 1000;
+	} else {
+	    normalizedSize = sizeValue / 50; // Ajustement pour MinFeret (valeurs plus petites)
+	}
     normalizedPerimeter = perimeter / 100;
     
     // Scores de base pour chaque type
     scores = newArray(typeNames.length);
+    minPositiveScore = 0.2;
+    
+    // Vérifier si un canal custom est présent
+	hasCustom = false;
+	customIndex = -1;
+	for (i = 0; i < typeNames.length; i++) {
+	    if (typeNames[i] == customChannelName && customChannelName != "") {
+	        hasCustom = true;
+	        customIndex = i;
+	        break;
+	    }
+	}
+	
+	// Si custom est présent, modifier la logique de dominance
+	if (hasCustom) {
+	    // Pour les customs, pas de dominance - directement hybride si plusieurs types
+	    if (typeNames.length >= 2) {
+	        // Trier les types pour un ordre cohérent
+	        sortedTypes = newArray();
+	        
+	        // Ordre de priorité : IIb > IIx > IIa > I > custom
+	        typeOrder = newArray("IIb", "IIx", "IIa", "I", customChannelName);
+	        
+	        for (j = 0; j < typeOrder.length; j++) {
+	            for (i = 0; i < typeNames.length; i++) {
+	                if (typeNames[i] == typeOrder[j] && scores[i] > 0) {
+	                    sortedTypes = Array.concat(sortedTypes, typeNames[i]);
+	                }
+	            }
+	        }
+	        
+	        // Retourner le premier type + custom (ou custom + premier type selon l'ordre)
+	        if (sortedTypes.length >= 2) {
+	            if (sortedTypes[0] == customChannelName) {
+	                return sortedTypes[1] + "-" + customChannelName;
+	            } else {
+	                return sortedTypes[0] + "-" + customChannelName;
+	            }
+	        }
+	    }
+	}
     
     for (i = 0; i < typeNames.length; i++) {
         // Score initial basé sur l'intensité - plus permissif
@@ -990,69 +1113,139 @@ function classifyHybridFiber(intensities, thresholds, typeNames, area, perimeter
         // Règles spécifiques par type de fibre 
         if (typeNames[i] == "I") {
             // Type I - généralement plus petit, ratio_3_4 élevé
-            if (normalizedArea < 1.0) scores[i] *= 1.35; // Augmenté
+            if (normalizedSize < 1.0) scores[i] *= 1.35; // Augmenté
             if (ratios[2] > 1.2) scores[i] *= 1.45; // Augmenté et seuil réduit
             // Bonus supplémentaire pour la forte homogénéité
-            if (solidity > 0.75) scores[i] *= 1.2;
+            if (solidity > 0.75) scores[i] *= 1.25;
             
             // Pénalité pour hétérogénéité périphérique
             if (eccentricity > 0.5 && solidity < 0.8) {
-                scores[i] *= 0.7; // Pénalité pour les signaux périphériques
+                scores[i] *= 0.65; // Pénalité pour les signaux périphériques
             }
         }
         else if (typeNames[i] == "IIa") {
             // Type IIa - taille moyenne, ratio_1_3 moyen
-            if (normalizedArea > 0.35 && normalizedArea < 2.8) scores[i] *= 1.35; // Plage élargie
+            if (normalizedSize > 0.35 && normalizedSize < 2.8) scores[i] *= 1.35; // Plage élargie
             if (ratios[0] > 0.65 && ratios[0] < 2.4) scores[i] *= 1.35; // Plage élargie
             if (solidity > 0.75) scores[i] *= 1.25; 
+            
+            // Pénalité pour hétérogénéité périphérique
+            if (eccentricity > 0.5 && solidity < 0.8) {
+                scores[i] *= 0.65; // Pénalité pour les signaux périphériques
+            }
         }
+        
         else if (typeNames[i] == "IIb") {
             // Type IIb - généralement plus grand, ratio_1_4 élevé
-            if (normalizedArea > 0.6) scores[i] *= 1.45; // Augmenté et seuil réduit
+            if (normalizedSize > 0.6) scores[i] *= 1.45; // Augmenté et seuil réduit
             if (eccentricity < 0.75) scores[i] *= 1.25; // Plage élargie
             if (ratios[1] > 0.8) scores[i] *= 1.35; // Seuil réduit
+            
+            // Pénalité pour hétérogénéité périphérique
+            if (eccentricity > 0.5 && solidity < 0.8) {
+                scores[i] *= 0.65; // Pénalité pour les signaux périphériques
+            }
         }
         else if (typeNames[i] == "IIx") {
             // Règles spécifiques aux fibres IIx
-            if (normalizedArea > 0.5 && normalizedArea < 2.0) scores[i] *= 1.3;
+            if (normalizedSize > 0.5 && normalizedSize < 2.0) scores[i] *= 1.3;
             if (ratios[0] > 0.8 && ratios[0] < 1.8) scores[i] *= 1.3;
             if (solidity > 0.78) scores[i] *= 1.22;
+            
+            // Pénalité pour hétérogénéité périphérique
+            if (eccentricity > 0.5 && solidity < 0.8) {
+                scores[i] *= 0.65; // Pénalité pour les signaux périphériques
+            }
         }
-        
+     	 
         // Ajustement morphologique général
-        if (solidity > 0.82) scores[i] *= 1.2;
+        if (solidity > 0.85) scores[i] *= 1.5;
     }
     
-    // Identifier les deux types avec les scores les plus élevés
-    maxScore = -1;
-    dominantTypeIndex = -1;
-    secondScore = -1;
-    secondTypeIndex = -1;
-    
-    for (i = 0; i < scores.length; i++) {
-        if (scores[i] > maxScore) {
-            secondScore = maxScore;
-            secondTypeIndex = dominantTypeIndex;
-            maxScore = scores[i];
-            dominantTypeIndex = i;
-        } else if (scores[i] > secondScore) {
-            secondScore = scores[i];
-            secondTypeIndex = i;
-        }
-    }
-    
-    // Si aucun signal positif, retourner "O"
-    if (maxScore <= 0) {
-        return "O";
-    }
-    
-    // Seuil de dominance réduit pour détecter plus de types principaux (plus permissif)
-    if (secondScore <= 0 || maxScore > 1.8 * secondScore) {  // Réduit de 2.0 à 1.8
-        return typeNames[dominantTypeIndex];
-    }
-    
-    // Seuil hybride augmenté pour détecter plus de fibres hybrides (plus permissif)
-    if (maxScore < 3.5 * secondScore) {  // Augmenté de 2.2 à 2.5
+    // Vérifier d'abord la présence de custom
+	hasCustom = false;
+	customIndex = -1;
+	for (i = 0; i < typeNames.length; i++) {
+	    if (typeNames[i] == customChannelName && customChannelName != "") {
+	        hasCustom = true;
+	        customIndex = i;
+	        break;
+	    }
+	}
+	
+	// Identifier les deux types avec les scores les plus élevés
+	maxScore = -1;
+	dominantTypeIndex = -1;
+	secondScore = -1;
+	secondTypeIndex = -1;
+	
+	for (i = 0; i < scores.length; i++) {
+	    if (scores[i] > maxScore) {
+	        secondScore = maxScore;
+	        secondTypeIndex = dominantTypeIndex;
+	        maxScore = scores[i];
+	        dominantTypeIndex = i;
+	    } else if (scores[i] > secondScore) {
+	        secondScore = scores[i];
+	        secondTypeIndex = i;
+	    }
+	}
+	
+	// Si aucun signal positif significatif, retourner "O"
+	if (maxScore <= minPositiveScore) {
+	    return "O";
+	}
+	
+	// LOGIQUE SPÉCIALE POUR CUSTOM : Pas de dominance si custom est présent
+	if (hasCustom && typeNames.length >= 2) {
+	    // Si custom est présent avec d'autres types, forcer hybride
+	    positiveTypes = newArray();
+	    
+	    // Collecter tous les types avec scores > minPositiveScore
+	    for (i = 0; i < typeNames.length; i++) {
+	        if (scores[i] > minPositiveScore) {
+	            positiveTypes = Array.concat(positiveTypes, typeNames[i]);
+	        }
+	    }
+	    
+	    // Si custom + au moins un autre type, créer hybride
+	    if (positiveTypes.length >= 2) {
+	        // Trier selon l'ordre naturel : IIb > IIx > IIa > I > custom
+	        sortedTypes = newArray();
+	        typeOrder = newArray("IIb", "IIx", "IIa", "I", customChannelName);
+	        
+	        for (j = 0; j < typeOrder.length; j++) {
+	            for (i = 0; i < positiveTypes.length; i++) {
+	                if (positiveTypes[i] == typeOrder[j]) {
+	                    sortedTypes = Array.concat(sortedTypes, positiveTypes[i]);
+	                }
+	            }
+	        }
+	        
+	        // Retourner hybride custom
+	        if (sortedTypes.length >= 2) {
+	            if (sortedTypes[0] == customChannelName) {
+	                return sortedTypes[1] + "-" + customChannelName;
+	            } else {
+	                return sortedTypes[0] + "-" + customChannelName;
+	            }
+	        }
+	    }
+	}
+	
+	// LOGIQUE NORMALE (sans custom) : Test de dominance
+	if (secondScore <= 0 || maxScore > 3 * secondScore) {
+	    return typeNames[dominantTypeIndex];
+	}
+	
+	// Seuil hybride augmenté pour détecter plus de fibres hybrides (plus permissif)
+	if (!hasCustom && maxScore < 4 * secondScore) { // Augmenté de 2.2 à 2.5
+	
+	// Par des valeurs encore plus permissives :
+	if (secondScore <= 0 || maxScore > 3.5 * secondScore) {  // Encore plus réduit
+	    return typeNames[dominantTypeIndex];
+	}
+	
         // Vérification spéciale pour IIa-I
         if ((typeNames[dominantTypeIndex] == "IIa" && typeNames[secondTypeIndex] == "I") ||
             (typeNames[dominantTypeIndex] == "I" && typeNames[secondTypeIndex] == "IIa")) {
@@ -1087,14 +1280,25 @@ function classifyHybridFiber(intensities, thresholds, typeNames, area, perimeter
         }
     }
     
+    if (hasCustom && maxScore < 4 * secondScore) { // Plus permissif pour custom
+	    // Si custom est l'un des deux types principaux, forcer hybride
+	    if (typeNames[dominantTypeIndex] == customChannelName || typeNames[secondTypeIndex] == customChannelName) {
+	        if (typeNames[dominantTypeIndex] == customChannelName) {
+	            return typeNames[secondTypeIndex] + "-" + customChannelName;
+	        } else {
+	            return typeNames[dominantTypeIndex] + "-" + customChannelName;
+	        }
+	    }
+	}
+	    
     // Cas par défaut - retourner le type dominant
     return typeNames[dominantTypeIndex];
 }
 
 // Fonction pour appliquer des règles spéciales aux classifications hybrides
-function applyHybridRules(intensities, thresholds, typeNames, area, perimeter, eccentricity, solidity, ratios) {
+function applyHybridRules(intensities, thresholds, typeNames, sizeValue, perimeter, eccentricity, solidity, ratios) {
     // Version originale de la fonction classifyHybridFiber
-    classificationResult = classifyHybridFiber(intensities, thresholds, typeNames, area, perimeter, eccentricity, solidity, ratios);
+    classificationResult = classifyHybridFiber(intensities, thresholds, typeNames, sizeValue, perimeter, eccentricity, solidity, ratios);
     return classificationResult;
 }
 
@@ -1754,9 +1958,9 @@ function createEnhancedAnalysisFile() {
                 if (values.length > 1) {
                     areaStr = values[1];
                     areaStr = replace(areaStr, ",", "."); // Convertir virgule en point
-                    areaValue = parseFloat(areaStr);
-                    if (!isNaN(areaValue)) {
-                        areaSum += areaValue;
+                    sizeValue = parseFloat(areaStr);
+                    if (!isNaN(sizeValue)) {
+                        areaSum += sizeValue;
                         areaCount++;
                     }
                 }
@@ -1950,20 +2154,23 @@ params = showEnhancedDialog();
 // Extraire les paramètres
 totalChannels = params[0];
 LaminineCannal = params[1];
-FibreDiameter = params[2];
-IIbChannel = params[3];
-IIxChannel = params[4];
-IIaChannel = params[5];
-IChannel = params[6];
-customChannel = params[7];
-customChannelName = params[8];
-cellposeSensitivity = params[9];
-exclusionThreshold = params[10];
-adaptiveThresholdFactor = params[11];
-filterNonHomogeneous = params[12];
-useGPU = params[13]; 
-useChannelColors = params[14];
-overlayOpacity = params[15];
+autoCalibrate = params[2];
+FibreDiameter = params[3];
+IIbChannel = params[4];
+IIxChannel = params[5];
+IIaChannel = params[6];
+IChannel = params[7];
+customChannel = params[8];
+customChannelName = params[9];
+sizeMeasurementMethod = params[10];
+useCSA = (sizeMeasurementMethod == "Cross Sectional Area (CSA)");
+cellposeSensitivity = params[11];
+exclusionThreshold = params[12];
+adaptiveThresholdFactor = params[13];
+filterNonHomogeneous = params[14];
+useGPU = params[15];
+useChannelColors = params[16];
+overlayOpacity = params[17];
 
 // Vérification que les canaux sélectionnés ne dépassent pas le nombre total de canaux
 if (LaminineCannal > totalChannels || 
@@ -2052,7 +2259,8 @@ smallImageProgress(k, nbFichiers, 1, 10, "Image opened");
 
 smallImageProgress(k, nbFichiers, 2, 10, "Configuring Cellpose");
 	
-	cellposeCommand = "env_path="+condaPath+" env_type=conda model=cyto3 model_path="+fijiPath+" diameter="+FibreDiameter+" ch1="+LaminineCannal+" ch2=0";
+	
+cellposeCommand = "env_path="+condaPath+" env_type=conda model=cyto3 model_path="+fijiPath+" diameter="+FibreDiameter+" ch1="+LaminineCannal+" ch2=0";
 
 	// Ajout de l'option GPU si sélectionnée et disponible
 	if (isWindowsOrLinux && useGPU) {
@@ -2114,7 +2322,11 @@ smallImageProgress(k, nbFichiers, 3, 10, "Running Cellpose");
 smallImageProgress(k, nbFichiers, 5, 10, "Measuring fiber properties");
 
 	//Lancer la macro 02_Macro_Analyse_MAIRE.ijm conditionnée aux canaux ALL - paramètre canal laminine
-	run("Set Measurements...", "area mean");
+	if (useCSA) {
+	    run("Set Measurements...", "area mean");
+	} else {
+	    run("Set Measurements...", "area mean feret's");
+	}
 	nROIs = roiManager("count");
 	getDimensions(w, h, channels, slices, frames);
 	
@@ -2142,7 +2354,11 @@ smallImageProgress(k, nbFichiers, 5, 10, "Measuring fiber properties");
 	output = File.open(dir + ImageName + "_Compiled_Results.csv");
 	
 	// Écrire les en-têtes
-	headers = "ROI,Area";
+	if (useCSA) {
+	    headers = "ROI,Size_CSA";
+	} else {
+	    headers = "ROI,Size_MinFeret";
+	}
 	for(i=0; i<channelNames.length; i++) {
 	    headers = headers + ",Mean_" + channelNames[i];
 	}
@@ -2176,7 +2392,11 @@ File.close(output);
     output = File.open(dir + ImageName + "_Compiled_Results.csv");
     
     // Écrire les en-têtes avec ajout des ratios
-    headers = "ROI,Area";
+    if (useCSA) {
+	    headers = "ROI,Size_CSA";
+	} else {
+	    headers = "ROI,Size_MinFeret";
+	}
     for(i=0; i<channelNames.length; i++) {
         headers = headers + ",Mean_" + channelNames[i];
     }
@@ -2189,10 +2409,26 @@ File.close(output);
     firstLines = split(firstResults, "\n");
     firstData = Array.slice(firstLines, 1);
     
-    // Extraire les valeurs et calculer les ratios
-    for (i = 0; i < firstData.length; i++) {
-        values = split(firstData[i], ",");
-        line = values[0] + "," + values[1]; // ROI et Area
+	// Charger les ROIs pour MinFeret si nécessaire
+	if (!useCSA) {
+	    roiManager("reset");
+	    roiManager("Open", dir+ImageName+"_ROI_Set.zip");
+	}
+	
+	// Extraire les valeurs et calculer les ratios
+	for (i = 0; i < firstData.length; i++) {
+	    values = split(firstData[i], ",");
+	    if (useCSA) {
+	        sizeValue = values[1]; // Area
+	    } else {
+	        // Pour MinFeret, mesurer directement
+	        roiManager("select", i);
+	        run("Set Measurements...", "feret's redirect=None decimal=3");
+	        run("Measure");
+	        sizeValue = getResult("MinFeret", nResults-1);
+	        run("Clear Results");
+	    }
+    line = values[0] + "," + sizeValue; // ROI et taille
         
         // Ajouter les moyennes de canaux
         mean_values = newArray(selectedChannels.length);
@@ -2373,7 +2609,11 @@ smallImageProgress(k, nbFichiers, 6, 10, "Calculating thresholds");
 	outputFile = File.open(dir + ImageName + "_Classified_Results.csv");
 	
 	// Construire l'en-tête avec point-virgule comme séparateur
-	headerString = "ROI;Area";
+	if (useCSA) {
+    headerString = "ROI;CSA";
+	} else {
+	headerString = "ROI;MinFeret";
+	}
 	
 	// N'ajouter que les colonnes pour les canaux actifs
 	if (IIbChannel > 0) {
@@ -2422,10 +2662,12 @@ smallImageProgress(k, nbFichiers, 7, 10, "Classifying fibers");
     }
     values = split(data[i], ",");
     
-    // Récupérer le numéro de ROI et l'aire
-    roiID = values[0];
-    area = parseFloat(values[1]);
-    areaValue = replace(area, ".", ","); // Formater pour CSV français
+	// Récupérer le numéro de ROI et la taille
+	roiID = values[0];
+	sizeValueNumeric = parseFloat(values[1]); // Valeur numérique pour les calculs
+	
+	// Pour l'affichage CSV (formaté)
+	sizeValueFormatted = replace(d2s(sizeValueNumeric, 2), ".", ",");
     
     // Extraire les caractéristiques morphologiques
     if (i < roiManager("count")) {
@@ -2504,11 +2746,10 @@ smallImageProgress(k, nbFichiers, 7, 10, "Classifying fibers");
         }
         if (customIndex > -1 && customChannel > 0) {
             homogeneityFactor_custom = calculateHomogeneity(newArray(value_custom), i);
-            if (solidity > 0.75) homogeneityFactor_I *= 1.25;
         }
     }
     
-    // Déterminer si chaque type est positif
+      // Déterminer si chaque type est positif
     isIIb = 0;
     isIIx = 0;
     isIIa = 0;
@@ -2516,21 +2757,29 @@ smallImageProgress(k, nbFichiers, 7, 10, "Classifying fibers");
     iscustom = 0;
     
     // Déterminer les positifs en comparant avec les seuils
-   	if (customIndex > -1 && customChannel > 0 && value_custom > customThreshold * homogeneityFactor_custom) {
-        iscustom = 1;
-    }
-   	if (IIbIndex > -1 && IIbChannel > 0 && value_IIb > IIbThreshold * homogeneityFactor_IIb) {
-        isIIb = 1;
-    }
-    if (IIxIndex > -1 && IIxChannel > 0 && value_IIx > IIxThreshold * homogeneityFactor_IIx) {
-        isIIx = 1;
-    }
-    if (IIaIndex > -1 && IIaChannel > 0 && value_IIa > IIaThreshold * homogeneityFactor_IIa) {
-        isIIa = 1;
-    }
-    if (IIndex > -1 && IChannel > 0 && value_I > IThreshold * homogeneityFactor_I) {
-        isI = 1;
-    }
+	if (customIndex > -1 && customChannel > 0 && value_custom > customThreshold) {
+    iscustom = 1;
+	}
+	
+	adjustedHomogeneityFactor_IIb = 1.0 + (homogeneityFactor_IIb - 1.0) * 0.9; 
+	if (IIbIndex > -1 && IIbChannel > 0 && value_IIb > IIbThreshold * adjustedHomogeneityFactor_IIb) {
+	    isIIb = 1;
+	}
+	
+	adjustedHomogeneityFactor_IIx = 1.0 + (homogeneityFactor_IIx - 1.0) * 0.9;
+	if (IIxIndex > -1 && IIxChannel > 0 && value_IIx > IIxThreshold * adjustedHomogeneityFactor_IIx) {
+	    isIIx = 1;
+	}
+	
+	adjustedHomogeneityFactor_IIa = 1.0 + (homogeneityFactor_IIa - 1.0) * 0.9;
+	if (IIaIndex > -1 && IIaChannel > 0 && value_IIa > IIaThreshold * adjustedHomogeneityFactor_IIa) {
+	    isIIa = 1;
+	}
+	
+	adjustedHomogeneityFactor_I = 1.0 + (homogeneityFactor_I - 1.0) * 0.9;
+	if (IIndex > -1 && IChannel > 0 && value_I > IThreshold * adjustedHomogeneityFactor_I) {
+	    isI = 1;
+	}
     
     // Préparation pour la classification
     classification = "O"; // Par défaut non-classé
@@ -2567,43 +2816,288 @@ smallImageProgress(k, nbFichiers, 7, 10, "Classifying fibers");
         typeNames = Array.concat(typeNames, customChannelName);
     }
     
-    // Cas de positif simple (priorité aux classifications simples)
-    if (isIIb == 1 && isIIx == 0 && isIIa == 0 && isI == 0 && iscustom == 0) {
-        classification = "IIb";
-    } else if (isIIb == 0 && isIIx == 1 && isIIa == 0 && isI == 0 && iscustom == 0) {
-        classification = "IIx";
-    } else if (isIIb == 0 && isIIx == 0 && isIIa == 1 && isI == 0 && iscustom == 0) {
-        classification = "IIa";
-    } else if (isIIb == 0 && isIIx == 0 && isIIa == 0 && isI == 1 && iscustom == 0) {
-        classification = "I";
- 	} else if  (isIIb == 0 && isIIx == 0 && isIIa == 1 && isI == 1 && iscustom == 0) {
-    	classification = "IIa-I";
-    } else if (isIIb == 0 && isIIx == 0 && isIIa == 0 && isI == 0 && iscustom == 1) {
-        classification = customChannelName;
-    } else if  (isIIb == 1 && isIIx == 0 && isIIa == 0 && isI == 0 && iscustom == 1) {
-    	classification = customChannelName + "-IIb";
-    } else if  (isIIb == 0 && isIIx == 1 && isIIa == 0 && isI == 0 && iscustom == 1) {
-    	classification = customChannelName + "-IIx";
-    } else if  (isIIb == 0 && isIIx == 0 && isIIa == 1 && isI == 0 && iscustom == 1) {
-    	classification = customChannelName + "-IIa";
-    } else if  (isIIb == 0 && isIIx == 0 && isIIa == 0 && isI == 1 && iscustom == 1) {
-    	classification = customChannelName + "-I";
+// Variables précalculées pour éviter les recalculs
+totalPositives = isIIb + isIIx + isIIa + isI;
+baseClassification = "O";
+
+// ===== CAS 1 TYPE POSITIF =====
+if (totalPositives == 1) {
+    if (isIIb == 1) {
+        baseClassification = "IIb";
+    } else if (isIIx == 1) {
+        baseClassification = "IIx";
+    } else if (isIIa == 1) {
+        baseClassification = "IIa";
+    } else {
+        baseClassification = "I";
     }
-    // Cas complexes - utiliser la fonction de classification hybride améliorée
-    else if (intensities.length > 0) {
-        classification = applyHybridRules(
-        	intensities, 
-        	thresholds, 
-        	typeNames, 
-        	area, 
-        	perimeter, 
-        	eccentricity, 
-        	solidity, 
-        	ratios);
+}
+
+// ===== CAS DE 2 TYPES POSITIFS =====
+else if (totalPositives == 2) {
+    
+    // IIb + IIa : Privilégier dominance
+    if (isIIb == 1 && isIIa == 1) {
+    	ratio = value_IIb / value_IIa;
+    	if (ratio > 0.65) {
+            baseClassification = "IIb";
+        } else if (ratio < 0.5) {
+            baseClassification = "IIa";
+        } else {
+            baseClassification = "IIb-IIa";
+        }
+    }
+
+	// IIx + I : Privilégier dominance
+	else if (isIIx == 1 && isI == 1) {
+    	ratio = value_IIx / value_I;
+    	if (ratio > 1.25) {
+            baseClassification = "IIx";
+        } else if (ratio < 0.875) {
+            baseClassification = "I";
+        } else {
+            baseClassification = "IIx-I";
+        }
+    }
+
+	// IIb + I : Privilégier dominance
+	else if (isIIb == 1 && isI == 1) {
+   		ratio = value_IIb / value_I;
+    	if (ratio > 1.25) {
+            baseClassification = "IIb";
+        } else if (ratio < 0.875) {
+            baseClassification = "I";
+        } else {
+            baseClassification = "IIb-I";
+        }
+    }
+	
+	// Cas hybrides autorisés
+	else if (isIIb == 1 && isIIx == 1) {
+        ratio = value_IIb / value_IIx;
+        if (ratio > 2.0) {
+            baseClassification = "IIb";
+        } else if (ratio < 0.5) {
+            baseClassification = "IIx";
+        } else {
+            baseClassification = "IIb-IIx";
+        }
     }
     
+    // IIx + IIa : hybride autorisé
+    else if (isIIx == 1 && isIIa == 1) {
+        ratio = value_IIx / value_IIa;
+        if (ratio > 2.0) {
+            baseClassification = "IIx";
+        } else if (ratio < 0.5) {
+            baseClassification = "IIa";
+        } else {
+            baseClassification = "IIx-IIa";
+        }
+    }
+    
+    // IIa + I : hybride autorisé
+    else if (isIIa == 1 && isI == 1) {
+        ratio = value_IIa / value_I;
+        if (ratio > 2.0) {
+            baseClassification = "IIa";
+        } else if (ratio < 0.5) {
+            baseClassification = "I";
+        } else {
+            baseClassification = "IIa-I";
+        }
+    }
+}
+
+// ===== CAS DE 3 TYPES POSITIFS =====
+else if (totalPositives == 3) {
+    
+    // IIb + IIa + I : dominance entre IIa et I
+    if (isIIb == 1 && isIIa == 1 && isI == 1) {
+        ratio = value_IIa / value_I;
+        if (ratio > 1.5) {
+            baseClassification = "IIa";
+        } else if (ratio < 0.67) {
+            baseClassification = "I";
+        } else {
+            baseClassification = "IIa-I";
+        }
+    }
+    
+    // IIb + IIx + I : dominance entre IIb et IIx
+    else if (isIIb == 1 && isIIx == 1 && isI == 1) {
+        ratio = value_IIb / value_IIx;
+        if (ratio > 1.5) {
+            baseClassification = "IIb";
+        } else if (ratio < 0.67) {
+            baseClassification = "IIx";
+        } else {
+            baseClassification = "IIb-IIx";
+        }
+    }
+    
+    // IIx + IIa + I : prendre les 2 plus forts
+    else if (isIIx == 1 && isIIa == 1 && isI == 1) {
+        // Déterminer directement les 2 plus forts sans tri
+        if (value_IIx >= value_IIa && value_IIx >= value_I) {
+            // IIx est le plus fort
+            if (value_IIa >= value_I) {
+                // IIx > IIa > I
+                ratio = value_IIx / value_IIa;
+                if (ratio > 1.5) {
+                    baseClassification = "IIx";
+                } else {
+                    baseClassification = "IIx-IIa";
+                }
+            } else {
+                // IIx > I > IIa
+                ratio = value_IIx / value_I;
+                if (ratio > 1.5) {
+                    baseClassification = "IIx";
+                } else {
+                    baseClassification = "IIx-I";
+                }
+            }
+        } else if (value_IIa >= value_IIx && value_IIa >= value_I) {
+            // IIa est le plus fort
+            if (value_IIx >= value_I) {
+                // IIa > IIx > I
+                ratio = value_IIa / value_IIx;
+                if (ratio > 1.5) {
+                    baseClassification = "IIa";
+                } else {
+                    baseClassification = "IIx-IIa";
+                }
+            } else {
+                // IIa > I > IIx
+                ratio = value_IIa / value_I;
+                if (ratio > 1.5) {
+                    baseClassification = "IIa";
+                } else {
+                    baseClassification = "IIa-I";
+                }
+            }
+        } else {
+            // I est le plus fort
+            if (value_IIx >= value_IIa) {
+                // I > IIx > IIa
+                ratio = value_I / value_IIx;
+                if (ratio > 1.5) {
+                    baseClassification = "I";
+                } else {
+                    baseClassification = "IIx-I";
+                }
+            } else {
+                // I > IIa > IIx
+                ratio = value_I / value_IIa;
+                if (ratio > 1.5) {
+                    baseClassification = "I";
+                } else {
+                    baseClassification = "IIa-I";
+                }
+            }
+        }
+    }
+        // IIx + IIa + IIb : prendre les 2 plus forts
+    else if (isIIx == 1 && isIIa == 1 && isIIb == 1) {
+        // Déterminer directement les 2 plus forts sans tri
+        if (value_IIx >= value_IIa && value_IIx >= value_IIb) {
+            // IIx est le plus fort
+            if (value_IIa >= value_IIb) {
+                // IIx > IIa > IIb
+                ratio = value_IIx / value_IIa;
+                if (ratio > 1.5) {
+                    baseClassification = "IIx";
+                } else {
+                    baseClassification = "IIx-IIa";
+                }
+            } else {
+                // IIx > IIb > IIa
+                ratio = value_IIx / value_IIb;
+                if (ratio > 1.5) {
+                    baseClassification = "IIx";
+                } else {
+                    baseClassification = "IIx-IIb";
+                }
+            }
+        } else if (value_IIa >= value_IIx && value_IIa >= value_IIb) {
+            // IIa est le plus fort
+            if (value_IIx >= value_IIb) {
+                // IIa > IIx > IIb
+                ratio = value_IIa / value_IIx;
+                if (ratio > 1.5) {
+                    baseClassification = "IIa";
+                } else {
+                    baseClassification = "IIx-IIa";
+                }
+            } else {
+                // IIa > IIb > IIx
+                ratio = value_IIa / value_IIb;
+                if (ratio > 1.5) {
+                    baseClassification = "IIa";
+                } else {
+                    baseClassification = "IIa-IIb";
+                }
+            }
+        } else {
+            // IIb est le plus fort
+            if (value_IIx >= value_IIa) {
+                // IIb > IIx > IIa
+                ratio = value_IIb / value_IIx;
+                if (ratio > 1.5) {
+                    baseClassification = "IIb";
+                } else {
+                    baseClassification = "IIx-IIb";
+                }
+            } else {
+                // IIb > IIa > IIx
+                ratio = value_IIb / value_IIa;
+                if (ratio > 1.5) {
+                    baseClassification = "IIb";
+                } else {
+                    baseClassification = "IIa-IIb";
+                }
+            }
+        }
+    }
+}
+
+// ===== CAS 4+ TYPES POSITIFS =====
+else if (totalPositives >= 4) {
+    // Trouver directement le maximum sans boucle
+    maxValue = value_IIb;
+    baseClassification = "IIb";
+    
+    if (value_IIx > maxValue) {
+        maxValue = value_IIx;
+        baseClassification = "IIx";
+    }
+    if (value_IIa > maxValue) {
+        maxValue = value_IIa;
+        baseClassification = "IIa";
+    }
+    if (value_I > maxValue) {
+        maxValue = value_I;
+        baseClassification = "I";
+    }
+}
+
+// ===== AUCUN TYPE POSITIF =====
+// baseClassification reste "O"
+
+// ===== INTÉGRATION CUSTOM =====
+if (iscustom == 1) {
+    if (baseClassification == "O") {
+        classification = customChannelName;
+    } else {
+        classification = baseClassification + "-" + customChannelName;
+    }
+} else {
+    classification = baseClassification;
+}
+    
     // Construire la ligne de résultat
-    resultLine = roiID + ";" + areaValue;
+    resultLine = roiID + ";" + sizeValueFormatted;
     
     // Ajouter les valeurs des canaux de manière sécurisée
     if (IIbChannel > 0) {
@@ -2654,7 +3148,11 @@ File.close(outputFile);
 	outputModified = File.open(dir + ImageName + "_Classified_Results.csv");
 	
 	// Écrire l'en-tête avec les colonnes supplémentaires
-	headerString = "ROI;Area";
+	if (useCSA) {
+	    headerString = "ROI;CSA";
+	} else {
+	    headerString = "ROI;MinFeret";
+	}
 	
 	// Ajouter uniquement les canaux actifs avec vérification de leur utilisation
 	if (IIbChannel > 0) {
