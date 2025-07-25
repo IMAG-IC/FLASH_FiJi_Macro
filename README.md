@@ -166,7 +166,7 @@ python -c "from cellpose import models; model = models.Cellpose(gpu=True); print
 
 ---
 
-## C. FLASH Utilization
+## FLASH Utilization
 
 Once the image preparation step is done as mentioned in the article, and Cellpose plugin installed, the macro can be run.
 
