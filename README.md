@@ -103,10 +103,17 @@ pip install cellpose==3.1.1.2
 pip install torch==1.13.1+cu118 torchvision==0.14.1+cu118 torchaudio==0.13.1 --index-url https://download.pytorch.org/whl/cu118 --no-cache-dir
 ```
 
-For **CPU only** (macOS/Linux or Windows without GPU):
+For **CPU only** (Linux or Windows without GPU):
 ```bash
 pip install cellpose==3.1.1.2
 pip install torch==1.13.1.1+cpu torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir
+```
+For **MAC** :
+```bash
+conda install -c conda-forge numpy=1.24.3 scipy matplotlib -y conda install -c conda-forge opencv scikit-image imageio numba -y  
+conda install -c conda-forge imagecodecs -y
+pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2
+pip install cellpose==3.1.1.2
 ```
 
 **Common dependencies:**
