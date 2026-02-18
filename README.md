@@ -86,6 +86,8 @@ Open terminal/command prompt and execute:
 conda config --set auto_activate_base false
 conda config --set channel_priority flexible
 conda config --set solver libmamba
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 conda info
 
 # Clean and create environment
@@ -133,11 +135,24 @@ python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 python -c "from cellpose import models; model = models.Cellpose(gpu=True); print('Cellpose GPU: OK' if model.gpu else 'GPU not available')"
 ```
 
-### D. Cellpose Plugin Configuration in FIJI
+### D.  Install Required FIJI Plugins
+The BIOP plugin does not come with FIJI by default and must be installed manually via the update sites.
 
-1. In FIJI: open any image
-2. Go to `Plugins → BIOP → Cellpose/Omnipose → Cellpose...`
-3. **Verify parameters:**
+1. Open FIJI
+2. Go to Help → Update...
+3. Click on "Manage update sites"
+4. Search and check the following update sites:
+
+PTBIOP — (URL: https://biop.epfl.ch/Fiji-Update/)
+ImageSciences — (URL: https://sites.imagej.net/ImageSciences/)
+IBMP-CNRS — (URL: https://sites.imagej.net/IBMP-CNRS/)
+
+5. Click Close, then Apply changes
+6. Restart FIJI
+
+7. In FIJI: open any image
+8. Go to `Plugins → BIOP → Cellpose/Omnipose → Cellpose...`
+9. **Verify parameters:**
    - ✅ `--use_gpu` is present (add if missing)
    - ❌ `--do_3d` should NOT be present (remove if present)
 
