@@ -6,7 +6,7 @@ Maxime Di Gallo, Thomas Guilbert & Raphaël Braud-Mussi project
 
 A general intensity quantification macro for FiJi - FiJi Is Just ImageJ.
 
-[https://www.researchsquare.com/article/rs-6629157/v1](https://pmc.ncbi.nlm.nih.gov/articles/PMC12639953/)
+[https://pmc.ncbi.nlm.nih.gov/articles/PMC12639953/]
 
 ## Background
 
