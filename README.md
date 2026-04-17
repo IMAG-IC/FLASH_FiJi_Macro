@@ -26,6 +26,20 @@ FLASH provides an efficient and robust tool for high-throughput skeletal muscle 
 
 ---
 
+##  ⚠️ V5.6 !! Latest Update : Classification Logic Overhaul
+
+The fiber type classification pipeline has been substantially revised in myoFLASH_v5.6.ijm. The previous statistical adaptive threshold (enhancedAdaptiveThreshold) has been replaced by a display-range-based approach: the positivity threshold for each fiber type channel is now derived directly from the Brightness & Contrast display range that the user sets in Fiji via Image > Adjust > Brightness/Contrast.
+
+Required Image Preparation
+Because the threshold is no longer inferred automatically from pixel statistics, each channel must be carefully prepared before running the macro. In the Brightness & Contrast panel, adjust the display range of every fiber type channel so that genuinely labeled fibers are clearly visible in grayscale while negative fibers and background noise appear black or nearly black. This visual adjustment directly defines the threshold applied by the macro to prevent misclassification.
+
+- Important: Save your image as a composite TIFF from Fiji after adjusting the Brightness & Contrast of each channel. The display range values are persisted in the TIFF    metadata and read at runtime; if they are missing, Fiji will fall back to automatic scaling and the calibration will be lost.
+
+Artifact Removal
+Fluorescent artifacts present on a section (like non-specific bright spots, debris, or acquisition glitches) can now be manually removed from a given channel before analysis without affecting classification on the channels. Edit the problematic channel in Fiji (for example with Process > Noise tools, manual masking, or direct pixel clearing), then save the composite TIFF as usual. This per-channel editing flexibility substantially reduces false positives caused by spurious signal and is fully compatible with the new thresholding logic.
+
+---
+
 ## Installation Guide
 #### Note: A test dataset with sample images is available at the end of this document to validate your installation and test the FLASH workflow.
 ### System Requirements
